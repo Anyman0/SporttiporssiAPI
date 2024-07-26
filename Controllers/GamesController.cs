@@ -71,8 +71,9 @@ namespace SporttiporssiAPI.Controllers
             return Ok(gameStats);
         }
 
+        [AllowAnonymous]
         [HttpPost("{year}", Name = "PopulateLiigaGames")]
-        private async Task<ActionResult> PopulateLiigaGames(int year)
+        public async Task<ActionResult> PopulateLiigaGames(int year)
         {
             var apiUrl = liigaBaseAddress + $"games?tournament=runkosarja&season={year}";
             var response = await _httpClient.GetAsync(apiUrl);

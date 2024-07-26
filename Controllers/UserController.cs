@@ -82,7 +82,7 @@ namespace SporttiporssiAPI.Controllers
                 return StatusCode(500, "Internal server error..");
             }
         }
-
+        [Authorize]
         [HttpGet("validate-token")]
         public async Task<ActionResult> ValidateToken()
         {

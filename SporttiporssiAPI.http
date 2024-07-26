@@ -1,6 +1,0 @@
-@SporttiporssiAPI_HostAddress = http://localhost:5217
-
-GET {{SporttiporssiAPI_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###

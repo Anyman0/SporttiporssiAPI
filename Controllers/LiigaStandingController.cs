@@ -25,6 +25,7 @@ namespace SporttiporssiAPI.Controllers
             return await _context.LiigaStandings.OrderBy(s => s.Ranking).ToListAsync();
         }
 
+        [AllowAnonymous]
         [HttpPost("{year}" ,Name = "PopulateLiigaStandings")]
         private async Task<ActionResult> PopulateLiigaStandings(int year)
         {
