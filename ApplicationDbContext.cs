@@ -1,6 +1,8 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using SporttiporssiAPI.Models;
+using SporttiporssiAPI.Models.DBModels;
 using System.ComponentModel.DataAnnotations;
 namespace SporttiporssiAPI
 {
@@ -10,14 +12,41 @@ namespace SporttiporssiAPI
 
         public DbSet<Player> Players { get; set; }
         public DbSet<LiigaStanding> LiigaStandings { get; set; }
+        public DbSet<LeagueStanding> LeagueStandings { get; set; }
+        public DbSet<FantasyGroup> FantasyGroups { get; set; }
         public DbSet<Game> Games { get; set; }
         public DbSet<User> Users { get; set; }
+        public DbSet<Series> Series { get; set; }
+        public DbSet<SportPhase> SportPhases { get; set; }
+        public DbSet<FantasyGroupTeamLink> FantasyGroupTeamLinks { get; set; }
+        public DbSet<FantasyTeam> FantasyTeams { get; set; }
+        public DbSet<FantasyTeamPlayerLink> FantasyTeamPlayerLinks { get; set; }
+        public DbSet<FantasyTeamStats> FantasyTeamStats { get; set; }
+        public DbSet<GroupDataResult> GroupDataResults { get; set; }
+        public DbSet<HockeyDefaultFTP> HockeyDefaultFTPs { get; set; }
+        public DbSet<Models.DBModels.Stage> Stages { get; set; }
+        public DbSet<Models.DBModels.Team> Teams { get; set; }
+        public DbSet<Models.DBModels.Event> Events { get; set; }
+        public DbSet<CanTradeResult> CanTradeResults { get; set; }
+
+
+        public async Task<List<GroupDataResult>> GetGroupDataAndStandingByTeamId(Guid teamId)
+        {
+            var teamIdParam = new SqlParameter("@TeamId", teamId);
+            var results = await GroupDataResults.FromSqlRaw("EXEC GetGroupDataAndStandingByTeamId @teamId", teamIdParam).ToListAsync();
+            return results;
+        }   
+
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<LiigaStanding>()
             .ToTable("LiigaStanding")
             .HasKey(l => l.LiigaStandingId);
+
+            modelBuilder.Entity<LeagueStanding>()
+                .ToTable("LeagueStanding")
+                .HasKey(l => l.Id);
 
             // Additional configuration if needed
             modelBuilder.Entity<LiigaStanding>()
@@ -43,41 +72,128 @@ namespace SporttiporssiAPI
             modelBuilder.Entity<Player>().ToTable("Player");
             modelBuilder.Entity<Player>().HasKey(p => p.Id);
 
+            modelBuilder.Entity<Models.DBModels.Stage>().ToTable("Stages");
+            modelBuilder.Entity<Models.DBModels.Stage>().HasKey(s => s.Id);
+            modelBuilder.Entity<Models.DBModels.Team>().ToTable("Teams");
+            modelBuilder.Entity<Models.DBModels.Team>().HasKey(t => t.Id);
+
+            modelBuilder.Entity<Models.DBModels.Team>()
+              .HasMany(t => t.HomeEvents)
+              .WithOne(e => e.HomeTeam)
+              .HasForeignKey(e => e.HomeTeamId)
+              .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Models.DBModels.Team>()
+                .HasMany(t => t.AwayEvents)
+                .WithOne(e => e.AwayTeam)
+                .HasForeignKey(e => e.AwayTeamId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Models.Game>().ToTable("Game");
+            modelBuilder.Entity<Models.Game>().HasKey(g => g.GameId);
+
+            modelBuilder.Entity<Models.DBModels.Event>().ToTable("Events");
+            modelBuilder.Entity<Models.DBModels.Event>().HasKey(e => e.Id);
+
+            modelBuilder.Entity<Models.DBModels.Event>()
+                    .HasOne(e => e.Stage)
+                    .WithMany(s => s.Events)
+                    .HasForeignKey(e => e.StageId);
+
+            modelBuilder.Entity<Models.DBModels.Event>()
+                .HasOne(e => e.HomeTeam)
+                .WithMany(t => t.HomeEvents)
+                .HasForeignKey(e => e.HomeTeamId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Models.DBModels.Event>()
+                .HasOne(e => e.AwayTeam)
+                .WithMany(t => t.AwayEvents)
+                .HasForeignKey(e => e.AwayTeamId)
+                .OnDelete(DeleteBehavior.Restrict);           
+
+            modelBuilder.Entity<HockeyDefaultFTP>().ToTable("HockeyDefaultFTP");
+            modelBuilder.Entity<HockeyDefaultFTP>().HasKey(d => d.DefaultFTPId);
+
+            modelBuilder.Entity<FantasyGroup>().ToTable("FantasyGroup");
+            modelBuilder.Entity<FantasyGroup>().HasKey(g => g.GroupId);
+            modelBuilder.Entity<FantasyGroup>()
+                .Property(fg => fg.OffenceShotFTP)
+                .HasColumnType("float");
+
+            modelBuilder.Entity<FantasyGroup>()
+                .Property(fg => fg.OffencePowerFTP)
+                .HasColumnType("float");
+
+            modelBuilder.Entity<FantasyGroup>()
+                .Property(fg => fg.DefenceShotFTP)
+                .HasColumnType("float");
+
+            modelBuilder.Entity<FantasyGroup>()
+                .Property(fg => fg.DefencePowerFTP)
+                .HasColumnType("float");
+
+            modelBuilder.Entity<FantasyGroup>()
+                .Property(fg => fg.GoalieSaveFTP)
+                .HasColumnType("float");
+
+            modelBuilder.Entity<FantasyGroup>()
+                .Property(fg => fg.FaceOffFTP)
+                .HasColumnType("float");
+
+            modelBuilder.Entity<FantasyTeam>().ToTable("FantasyTeam")
+                .HasKey(ft => ft.FantasyTeamId);
+
+            modelBuilder.Entity<GroupDataResult>().HasNoKey();
+            modelBuilder.Entity<CanTradeResult>().HasNoKey();
+            modelBuilder.Entity<LiigaTeam>().HasNoKey();
+
+            modelBuilder.Entity<Series>().ToTable("Series");
+            modelBuilder.Entity<Series>().HasKey(s => s.SerieId);
+
+            modelBuilder.Entity<SportPhase>().ToTable("SportPhases");
+            modelBuilder.Entity<SportPhase>().HasKey(s => s.SportPhaseId);
+
+            modelBuilder.Entity<FantasyGroupTeamLink>().ToTable("FantasyGroupTeamLink")
+                .HasKey(fg => fg.FantasyGroupTeamLinkId);
+            modelBuilder.Entity<FantasyTeamPlayerLink>().ToTable("FantasyTeamPlayerLink")
+                .HasKey(ft => ft.FTPLinkId);
+
             modelBuilder.Entity<Game>()
            .ToTable("Game")
            .HasKey(g => g.GameId);
 
-            modelBuilder.Entity<Game>()
-           .OwnsOne(g => g.HomeTeam, team =>
-           {
-               team.Property(t => t.TeamId).HasColumnName("HomeTeamId");
-               team.Property(t => t.TeamPlaceholder).HasColumnName("HomeTeamPlaceholder");
-               team.Property(t => t.TeamName).HasColumnName("HomeTeamName");
-               team.Property(t => t.Goals).HasColumnName("HomeTeamGoals");
-               team.Property(t => t.TimeOut).HasColumnName("HomeTeamTimeOut");
-               team.Property(t => t.PowerplayInstances).HasColumnName("HomeTeamPowerplayInstances");
-               team.Property(t => t.PowerplayGoals).HasColumnName("HomeTeamPowerplayGoals");
-               team.Property(t => t.ShortHandedInstances).HasColumnName("HomeTeamShortHandedInstances");
-               team.Property(t => t.ShortHandedGoals).HasColumnName("HomeTeamShortHandedGoals");
-               team.Property(t => t.Ranking).HasColumnName("HomeTeamRanking");
-               team.Property(t => t.GameStartDateTime).HasColumnName("HomeTeamGameStartDateTime");
-           });
+           // modelBuilder.Entity<Game>()
+           //.OwnsOne(g => g.HomeTeam, team =>
+           //{
+           //    team.Property(t => t.TeamId).HasColumnName("HomeTeamId");
+           //    team.Property(t => t.TeamPlaceholder).HasColumnName("HomeTeamPlaceholder");
+           //    team.Property(t => t.TeamName).HasColumnName("HomeTeamName");
+           //    team.Property(t => t.Goals).HasColumnName("HomeTeamGoals");
+           //    team.Property(t => t.TimeOut).HasColumnName("HomeTeamTimeOut");
+           //    team.Property(t => t.PowerplayInstances).HasColumnName("HomeTeamPowerplayInstances");
+           //    team.Property(t => t.PowerplayGoals).HasColumnName("HomeTeamPowerplayGoals");
+           //    team.Property(t => t.ShortHandedInstances).HasColumnName("HomeTeamShortHandedInstances");
+           //    team.Property(t => t.ShortHandedGoals).HasColumnName("HomeTeamShortHandedGoals");
+           //    team.Property(t => t.Ranking).HasColumnName("HomeTeamRanking");
+           //    team.Property(t => t.GameStartDateTime).HasColumnName("HomeTeamGameStartDateTime");
+           //});
 
-            modelBuilder.Entity<Game>()
-                .OwnsOne(g => g.AwayTeam, team =>
-                {
-                    team.Property(t => t.TeamId).HasColumnName("AwayTeamId");
-                    team.Property(t => t.TeamPlaceholder).HasColumnName("AwayTeamPlaceholder");
-                    team.Property(t => t.TeamName).HasColumnName("AwayTeamName");
-                    team.Property(t => t.Goals).HasColumnName("AwayTeamGoals");
-                    team.Property(t => t.TimeOut).HasColumnName("AwayTeamTimeOut");
-                    team.Property(t => t.PowerplayInstances).HasColumnName("AwayTeamPowerplayInstances");
-                    team.Property(t => t.PowerplayGoals).HasColumnName("AwayTeamPowerplayGoals");
-                    team.Property(t => t.ShortHandedInstances).HasColumnName("AwayTeamShortHandedInstances");
-                    team.Property(t => t.ShortHandedGoals).HasColumnName("AwayTeamShortHandedGoals");
-                    team.Property(t => t.Ranking).HasColumnName("AwayTeamRanking");
-                    team.Property(t => t.GameStartDateTime).HasColumnName("AwayTeamGameStartDateTime");
-                });
+           // modelBuilder.Entity<Game>()
+           //     .OwnsOne(g => g.AwayTeam, team =>
+           //     {
+           //         team.Property(t => t.TeamId).HasColumnName("AwayTeamId");
+           //         team.Property(t => t.TeamPlaceholder).HasColumnName("AwayTeamPlaceholder");
+           //         team.Property(t => t.TeamName).HasColumnName("AwayTeamName");
+           //         team.Property(t => t.Goals).HasColumnName("AwayTeamGoals");
+           //         team.Property(t => t.TimeOut).HasColumnName("AwayTeamTimeOut");
+           //         team.Property(t => t.PowerplayInstances).HasColumnName("AwayTeamPowerplayInstances");
+           //         team.Property(t => t.PowerplayGoals).HasColumnName("AwayTeamPowerplayGoals");
+           //         team.Property(t => t.ShortHandedInstances).HasColumnName("AwayTeamShortHandedInstances");
+           //         team.Property(t => t.ShortHandedGoals).HasColumnName("AwayTeamShortHandedGoals");
+           //         team.Property(t => t.Ranking).HasColumnName("AwayTeamRanking");
+           //         team.Property(t => t.GameStartDateTime).HasColumnName("AwayTeamGameStartDateTime");
+           //     });
 
             modelBuilder.Entity<User>(entity =>
             {
@@ -115,7 +231,7 @@ namespace SporttiporssiAPI
         public bool Rookie { get; set; }
         public bool Suspended { get; set; }
         public bool Removed { get; set; }
-        public string? TimeOnIce { get; set; }
+        public int? TimeOnIce { get; set; }
         public bool Current { get; set; }
         public int? Goals { get; set; }
         public int? Assists { get; set; }
@@ -124,10 +240,16 @@ namespace SporttiporssiAPI
         public int? Minus { get; set; }
         public int? PlusMinus { get; set; }
         public int? PenaltyMinutes { get; set; }
+        public int? Penalty2 {  get; set; }
+        public int? Penalty10 { get; set; }
+        public int? Penalty20 { get; set; }
         public int? PowerplayGoals { get; set; }
         public int? PenaltykillGoals { get; set; }
         public int WinningGoals { get; set; }
         public int? Shots { get; set; }
+        public int? Saves { get; set; }
+        public int? GoalieShutout { get; set; }
+        public int? AllowedGoals { get; set; }
         public int? ShotsIntoGoal { get; set; }
         public int? FaceoffsWon { get; set; }
         public int? FaceoffsLost { get; set; }
@@ -137,6 +259,17 @@ namespace SporttiporssiAPI
         public double? ShotPercentage { get; set; }
         public int? FaceoffsTotal { get; set; }
         public DateTime LastUpdated { get; set; }
+        public int? FTP {  get; set; }
+        public int? Price { get; set; }
+        public int? PlayerOwned { get; set; }
+        public int? BlockedShots { get; set; }
+        public int? GameWon { get; set; }
+    }
+
+    public class Group
+    {
+        [JsonProperty("group")]
+        public List<FantasyGroup> FantasyGroups { get; set; }
     }
 
     public class LiigaStandingResponse
@@ -188,5 +321,11 @@ namespace SporttiporssiAPI
         public double? PointsPerGame { get; set; } // FLOAT
         public DateTime? LastUpdated { get; set; } // Nullable DateTime
     }
+
+    public class Series
+    {
+        public Guid SerieId { get; set; }
+        public string SerieName { get; set; }
+    }    
 
 }

@@ -1,6 +1,6 @@
 ﻿namespace SporttiporssiAPI.Models
 {
-    public class GameStats
+    public class GameRoster
     {
         public GameDetails Game { get; set; }
         public List<Award> Awards { get; set; }

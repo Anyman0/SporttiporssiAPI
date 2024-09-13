@@ -2,140 +2,196 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
+using SporttiporssiAPI.Models;
+using SporttiporssiAPI.Models.DBModels;
 
 namespace SporttiporssiAPI.Controllers
 {
-    [Authorize]
+    //[Authorize]
     [Route("api/[controller]")]
     public class LiigaStandingController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
         private readonly HttpClient _httpClient;
         private readonly string liigaBaseAddress = "https://www.liiga.fi/api/v2/";
+        private readonly string liveScoreBaseAddress = "https://livescore6.p.rapidapi.com/";
+        private readonly string _rapidKey;
+        private readonly string _rapidHost;
 
-        public LiigaStandingController(ApplicationDbContext context, HttpClient httpClient)
+        public LiigaStandingController(ApplicationDbContext context, HttpClient httpClient, IConfiguration configuration)
         {
             _context = context;
             _httpClient = httpClient;
-        }
+            _rapidKey = configuration["RapidAPI:Key"];
+            _rapidHost = configuration["RapidAPI:Host"];
+        }      
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<LiigaStanding>>> GetStandings()
+        public async Task<ActionResult<IEnumerable<LeagueStanding>>> GetStandings(string league)
         {
-            return await _context.LiigaStandings.OrderBy(s => s.Ranking).ToListAsync();
+            var serie = await _context.Series.Where(s => s.SerieName == league).FirstOrDefaultAsync();
+            return await _context.LeagueStandings.Where(s => s.SerieId == serie.SerieId).OrderBy(s => s.Rank).ToListAsync();
+        }
+      
+        [AllowAnonymous]
+        [HttpPost("PopulateLeagueStandings")]
+        public async Task<ActionResult> PopulateLeagueStandings(string league)
+        {
+            var apiUrl = $"{liveScoreBaseAddress}leagues/v2/get-table?Category=hockey&Ccd=finland&Scd={league}";
+            try
+            {
+                var serie = _context.Series.Where(s => s.SerieName == league).FirstOrDefault();
+                var request = new HttpRequestMessage
+                {
+                    Method = HttpMethod.Get,
+                    RequestUri = new Uri(apiUrl),
+                    Headers =
+                    {
+                        { "x-rapidapi-key", _rapidKey },
+                        { "x-rapidapi-host", _rapidHost },
+                    },
+                };
+                using (var response = await _httpClient.SendAsync(request))
+                {
+                    response.EnsureSuccessStatusCode();
+                    var body = await response.Content.ReadAsStringAsync();     
+                    var leagueStandings = JsonConvert.DeserializeObject<LeagueStandingsResponse>(body);
+
+                    if(leagueStandings.LeagueTable.Leagues != null)
+                    {
+                        var leagueFromTable = leagueStandings.LeagueTable.Leagues.FirstOrDefault();
+                        var teams = leagueFromTable.Tables.FirstOrDefault().Teams.ToList();
+                        foreach (var team in teams)
+                        {
+                            var existingTeam = await _context.LeagueStandings.Where(t => t.TeamName == team.Tnm).FirstOrDefaultAsync();
+                            if (existingTeam != null)
+                            {
+                                _context.Entry(existingTeam).CurrentValues.SetValues(new
+                                {
+                                    Rank = team.Rnk,
+                                    Played = team.Pld,
+                                    TeamName = team.Tnm,
+                                    Points = team.Pts,
+                                    Wins = team.Win,
+                                    Losses = team.Lst,
+                                    GoalsFor = team.Gf,
+                                    GoalsAgainst = team.Ga,
+                                    GoalDifference = team.Gd,
+                                    LastUpdated = DateTime.UtcNow
+                                });
+                            }
+                            else
+                            {
+                                var teamStanding = new LeagueStanding
+                                {
+                                    SerieId = serie.SerieId,
+                                    Rank = team.Rnk,
+                                    Played = team.Pld,
+                                    TeamName = team.Tnm,
+                                    Points = team.Pts,
+                                    Wins = team.Win,
+                                    Losses = team.Lst,
+                                    GoalsFor = team.Gf,
+                                    GoalsAgainst = team.Ga,
+                                    GoalDifference = team.Gd,
+                                    LastUpdated = DateTime.UtcNow
+                                };
+                                await _context.LeagueStandings.AddAsync(teamStanding);
+                            }
+                        }
+                    }
+                }
+                await _context.SaveChangesAsync();
+                return Ok("Standings data populated successfully");
+            }
+            catch
+            {
+                return NotFound();
+            }
         }
 
         [AllowAnonymous]
-        [HttpPost("{year}" ,Name = "PopulateLiigaStandings")]
-        private async Task<ActionResult> PopulateLiigaStandings(int year)
+        [HttpPost("PopulateNHLStandings")]
+        public async Task<ActionResult> PopulateNHLStandings(string league)
         {
-            var apiUrl = liigaBaseAddress + $"standings/?season={year}";
-            var response = await _httpClient.GetStringAsync(apiUrl);
-
-            var standings = JsonConvert.DeserializeObject<LiigaStandingResponse>(response);
-
-            if (standings?.SeasonStandings != null)
+            var apiUrl = $"{liveScoreBaseAddress}leagues/v2/get-table?Category=hockey&Ccd={league}&Scd={league}-regular-season";
+            try
             {
-                foreach (var standing in standings.SeasonStandings)
+                var serie = _context.Series.Where(s => s.SerieName == league).FirstOrDefault();
+                var request = new HttpRequestMessage
                 {
-                    var existingStanding = await _context.LiigaStandings.FirstOrDefaultAsync(p => p.InternalId == standing.InternalId);
-                    var teamName = ExtractAndFormatTeamName(standing.TeamId);
-                    // Round percentages and points per game to two decimal places
-                    standing.WinPercentage = FormatPercentage(standing.WinPercentage);
-                    standing.PowerPlayPercentage = FormatPercentage(standing.PowerPlayPercentage);
-                    standing.ShortHandedPercentage = FormatPercentage(standing.ShortHandedPercentage);
-                    standing.PointsPerGame = standing.PointsPerGame.HasValue ? Math.Round(standing.PointsPerGame.Value, 2) : (double?)null;
-                    if (existingStanding != null)
+                    Method = HttpMethod.Get,
+                    RequestUri = new Uri(apiUrl),
+                    Headers =
                     {
-                        // Update existing record
-                        // Ensure only non-key properties are updated
-                        existingStanding.TeamName = teamName;
-                        _context.Entry(existingStanding).CurrentValues.SetValues(new
+                        { "x-rapidapi-key", _rapidKey },
+                        { "x-rapidapi-host", _rapidHost },
+                    },
+                };
+                using (var response = await _httpClient.SendAsync(request))
+                {
+                    response.EnsureSuccessStatusCode();
+                    var body = await response.Content.ReadAsStringAsync();
+                    var leagueStandings = JsonConvert.DeserializeObject<LeagueStandingsResponse>(body);
+
+                    if (leagueStandings.LeagueTable.Leagues != null)
+                    {
+                        var leagueFromTable = leagueStandings.LeagueTable.Leagues.FirstOrDefault();
+                        var teams = leagueFromTable.Tables.FirstOrDefault().Teams.ToList();
+                        foreach (var team in teams)
                         {
-                            standing.TeamId, 
-                            existingStanding.TeamName,
-                            standing.Ranking,
-                            standing.Games,
-                            standing.Wins,
-                            standing.WinPercentage,
-                            standing.OvertimeWins,
-                            standing.Losses,
-                            standing.OvertimeLosses,
-                            standing.Ties,
-                            standing.Points,
-                            standing.Goals,
-                            standing.GoalsAgainst,
-                            standing.PowerPlayPercentage,
-                            standing.PowerPlayInstances,
-                            standing.PowerPlayTime,
-                            standing.PowerPlayGoals,
-                            standing.ShortHandedPercentage,
-                            standing.ShortHandedInstances,
-                            standing.ShortHandedTime,
-                            standing.ShortHandedGoalsAgainst,
-                            standing.PenaltyMinutes,
-                            standing.TwoMinutePenalties,
-                            standing.FiveMinutePenalties,
-                            standing.TenMinutePenalties,
-                            standing.TwentyMinutePenalties,
-                            standing.TwentyFiveMinutePenalties,
-                            standing.TotalPenalties,
-                            standing.LiveRanking,
-                            standing.LiveGames,
-                            standing.LiveWins,
-                            standing.LiveLosses,
-                            standing.LiveTies,
-                            standing.LivePoints,
-                            standing.Distance,
-                            standing.DistancePerGame,
-                            standing.PointsPerGame,
-                            LastUpdated = DateTime.UtcNow // Update LastUpdated field
-                        });
+                            var existingTeam = await _context.LeagueStandings.Where(t => t.TeamName == team.Tnm).FirstOrDefaultAsync();
+                            if (existingTeam != null)
+                            {
+                                _context.Entry(existingTeam).CurrentValues.SetValues(new
+                                {
+                                    Rank = team.Rnk,
+                                    Played = team.Pld,
+                                    TeamName = team.Tnm,
+                                    Points = team.Pts,
+                                    Wins = team.Win,
+                                    Losses = team.Lst,
+                                    GoalsFor = team.Gf,
+                                    GoalsAgainst = team.Ga,
+                                    GoalDifference = team.Gd,
+                                    LastUpdated = DateTime.UtcNow
+                                });
+                            }
+                            else
+                            {
+                                var teamStanding = new LeagueStanding
+                                {
+                                    SerieId = serie.SerieId,
+                                    Rank = team.Rnk,
+                                    Played = team.Pld,
+                                    TeamName = team.Tnm,
+                                    Points = team.Pts,
+                                    Wins = team.Win,
+                                    Losses = team.Lst,
+                                    GoalsFor = team.Gf,
+                                    GoalsAgainst = team.Ga,
+                                    GoalDifference = team.Gd,
+                                    LastUpdated = DateTime.UtcNow
+                                };
+                                await _context.LeagueStandings.AddAsync(teamStanding);
+                            }
+                        }
                     }
-                    else
-                    {
-                        standing.TeamName = teamName;
-                        standing.LastUpdated = DateTime.UtcNow;
-                        await _context.LiigaStandings.AddAsync(standing);
-                    }
-                }               
+                }
+                await _context.SaveChangesAsync();
+                return Ok("Standings data populated successfully");
             }
-            await _context.SaveChangesAsync();
-            return Ok("Standings data populated successfully");
+            catch
+            {
+                return NotFound();
+            }
         }
 
-        private string ExtractAndFormatTeamName(string teamId)
+        [HttpGet("GetTeamRank")]
+        public async Task<int> GetRankingByTeamAndSerie(string teamName, string league)
         {
-            if (string.IsNullOrEmpty(teamId) || !teamId.Contains(':'))
-            {
-                return string.Empty;
-            }
-
-            var parts = teamId.Split(':');
-            if (parts.Length < 2)
-            {
-                return string.Empty;
-            }
-
-            var teamName = parts[1];
-            return teamName.Length <= 4
-                ? teamName.ToUpper()
-                : char.ToUpper(teamName[0]) + teamName.Substring(1).ToLower();
-        }
-
-        private string FormatPercentage(string percentage)
-        {
-            if (string.IsNullOrEmpty(percentage))
-            {
-                return percentage;
-            }
-
-            if (double.TryParse(percentage, out double value))
-            {
-                return Math.Round(value, 2).ToString("F2");
-            }
-
-            return percentage;
+            var serie = await _context.Series.Where(s => s.SerieName == league).FirstOrDefaultAsync();
+            return await _context.LeagueStandings.Where(s => s.TeamName == teamName && s.SerieId == serie.SerieId).Select(s => s.Rank).FirstOrDefaultAsync();
         }
     }
 }

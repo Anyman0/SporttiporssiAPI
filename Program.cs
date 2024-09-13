@@ -7,6 +7,9 @@ using System.Text;
 using Azure.Identity;
 using Microsoft.Extensions.Configuration.AzureKeyVault;
 using Azure.Security.KeyVault.Secrets;
+using System.Text.Json.Serialization;
+using SporttiporssiAPI.Interfaces;
+using SporttiporssiAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,7 +24,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddControllers();
+//builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -34,21 +37,26 @@ var keyvaultDirectoryID = builder.Configuration.GetSection("KeyVault:DirectoryID
 var credential = new ClientSecretCredential(keyvaultDirectoryID.Value!.ToString(), keyvaultClientId.Value!.ToString(), keyvaultClientSecret.Value!.ToString());
 builder.Configuration.AddAzureKeyVault(keyvaultUrl.Value!.ToString(), keyvaultClientId.Value!.ToString(), keyvaultClientSecret.Value!.ToString(), new DefaultKeyVaultSecretManager());
 var client = new SecretClient(new Uri(keyvaultUrl.Value!.ToString()), credential);
-
+var rapidSecret = client.GetSecret("rapidAPI-key").Value.Value;
+builder.Configuration["RapidAPI:Key"] = rapidSecret;
 builder.Services.AddHttpClient();
 
-if(builder.Environment.IsProduction() || builder.Environment.IsDevelopment())
+if(builder.Environment.IsProduction())
 {
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(client.GetSecret("DBConnection").Value.Value.ToString()));
 }
-//else if (builder.Environment.IsDevelopment())
-//{
-//    builder.Services.AddDbContext<ApplicationDbContext>(options =>
-//    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-//}
+else if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+}
 
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
+builder.Services.AddControllers().AddJsonOptions(options =>
+{
+    options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.Preserve;
+});
 
 var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>();
 var jwtKey = client.GetSecret("JWTKey").Value.Value;
@@ -57,6 +65,8 @@ builder.Services.AddSingleton(new JwtHelper(
     jwtSettings!.Issuer,
     jwtSettings.Audience,
     jwtSettings.ExpireDays));
+
+
 
 builder.Services.AddAuthentication(options =>
 {
@@ -76,7 +86,7 @@ builder.Services.AddAuthentication(options =>
     };
 });
 builder.Services.AddAuthorization();
-
+builder.Services.AddScoped<IGameStatsService, GameStatsService>();
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
