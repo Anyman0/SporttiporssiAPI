@@ -27,6 +27,19 @@ namespace SporttiporssiAPI.Controllers
             return await _context.Players.ToListAsync();
         }
 
+        [HttpGet("GetPlayersByRole")]
+        public async Task<ActionResult<IEnumerable<Player>>> GetPlayersByRole(string[] roles)
+        {
+            var normalizedRoles = roles.Select(r => r.ToLower()).ToArray();
+
+            // Fetch players where the role is in the provided roles list
+            var requestedPlayers = await _context.Players
+                .Where(p => normalizedRoles.Contains(p.Role.ToLower()))
+                .ToListAsync();
+
+            return Ok(requestedPlayers);
+        }
+
         [HttpGet("{id}")]
         public async Task<ActionResult<Player>> GetPlayer(Guid id)
         {

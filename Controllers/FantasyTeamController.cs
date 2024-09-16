@@ -58,9 +58,15 @@ namespace SporttiporssiAPI.Controllers
         }
 
         [HttpGet("CanTrade")]
-        public async Task<bool> CanTrade()
+        public async Task<bool> CanTrade(string serie)
         {
-            var result = await _context.CanTradeResults.FromSqlRaw("EXEC CanTrade").ToListAsync();
+            var serieId = await _context.Series.Where(s => s.SerieName.ToLower() == serie).Select(s => s.SerieId).FirstOrDefaultAsync();
+            var league = new SqlParameter("@League", serieId);
+            if (string.IsNullOrEmpty(serieId.ToString()))
+            {
+                return false;
+            }
+            var result = await _context.CanTradeResults.FromSqlRaw("EXEC CanTrade @League", league).ToListAsync();
             return result.FirstOrDefault()?.CanTrade ?? false;
         }
      
